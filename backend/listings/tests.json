@@ -1,0 +1,25 @@
+{
+  "tests": [
+    {
+      "name": "Получение списка объявлений",
+      "method": "GET",
+      "path": "/",
+      "expectedStatus": 200
+    },
+    {
+      "name": "Создание объявления",
+      "method": "POST",
+      "path": "/",
+      "body": {"title": "Тестовый товар", "price": 1000, "category": "Электроника", "location": "Москва"},
+      "expectedStatus": 200,
+      "expectedBody": {"success": true},
+      "bodyMatcher": "partial"
+    },
+    {
+      "name": "Фильтр по категории",
+      "method": "GET",
+      "path": "/?category=Транспорт",
+      "expectedStatus": 200
+    }
+  ]
+}
