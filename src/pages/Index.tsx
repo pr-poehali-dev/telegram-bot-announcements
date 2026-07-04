@@ -53,6 +53,7 @@ const Index = () => {
   const [favs, setFavs] = useState<number[]>([]);
   const [listings, setListings] = useState<Listing[]>([]);
   const [loading, setLoading] = useState(true);
+  const [selected, setSelected] = useState<Listing | null>(null);
 
   const loadListings = useCallback(async () => {
     setLoading(true);
@@ -110,6 +111,7 @@ const Index = () => {
               loading={loading}
               favs={favs}
               toggleFav={toggleFav}
+              onOpen={setSelected}
             />
           )}
           {tab === 'create' && (
@@ -127,11 +129,25 @@ const Index = () => {
               listings={listings.filter((l) => favs.includes(l.id))}
               favs={favs}
               toggleFav={toggleFav}
+              onOpen={setSelected}
             />
           )}
           {tab === 'chats' && <ChatsView />}
           {tab === 'profile' && <ProfileView count={listings.length} />}
         </main>
+
+        {selected && (
+          <ListingDetail
+            listing={selected}
+            fav={favs.includes(selected.id)}
+            toggleFav={toggleFav}
+            onClose={() => setSelected(null)}
+            onChat={() => {
+              setSelected(null);
+              setTab('chats');
+            }}
+          />
+        )}
 
         <nav className="fixed bottom-0 left-1/2 -translate-x-1/2 w-full max-w-md bg-card border-t border-border px-2 py-2 flex items-center justify-around z-20">
           {([
@@ -181,9 +197,10 @@ interface FeedProps {
   loading: boolean;
   favs: number[];
   toggleFav: (id: number) => void;
+  onOpen: (l: Listing) => void;
 }
 
-const FeedView = ({ activeCat, setActiveCat, search, setSearch, listings, loading, favs, toggleFav }: FeedProps) => (
+const FeedView = ({ activeCat, setActiveCat, search, setSearch, listings, loading, favs, toggleFav, onOpen }: FeedProps) => (
   <div className="animate-fade-in">
     <div className="px-4 pt-4">
       <div className="flex items-center gap-2 bg-card border border-border rounded-2xl px-4 py-3">
@@ -236,15 +253,28 @@ const FeedView = ({ activeCat, setActiveCat, search, setSearch, listings, loadin
         </div>
       ) : (
         listings.map((l) => (
-          <ListingCard key={l.id} l={l} fav={favs.includes(l.id)} toggleFav={toggleFav} />
+          <ListingCard key={l.id} l={l} fav={favs.includes(l.id)} toggleFav={toggleFav} onOpen={onOpen} />
         ))
       )}
     </div>
   </div>
 );
 
-const ListingCard = ({ l, fav, toggleFav }: { l: Listing; fav: boolean; toggleFav: (id: number) => void }) => (
-  <div className="bg-card rounded-2xl overflow-hidden border border-border animate-scale-in">
+const ListingCard = ({
+  l,
+  fav,
+  toggleFav,
+  onOpen,
+}: {
+  l: Listing;
+  fav: boolean;
+  toggleFav: (id: number) => void;
+  onOpen: (l: Listing) => void;
+}) => (
+  <div
+    onClick={() => onOpen(l)}
+    className="bg-card rounded-2xl overflow-hidden border border-border animate-scale-in cursor-pointer hover:shadow-md transition-shadow"
+  >
     <div className="relative">
       {l.image_url ? (
         <img src={l.image_url} alt={l.title} className="w-full h-44 object-cover" />
@@ -254,7 +284,10 @@ const ListingCard = ({ l, fav, toggleFav }: { l: Listing; fav: boolean; toggleFa
         </div>
       )}
       <button
-        onClick={() => toggleFav(l.id)}
+        onClick={(e) => {
+          e.stopPropagation();
+          toggleFav(l.id);
+        }}
         className="absolute top-3 right-3 w-9 h-9 rounded-full bg-white/90 backdrop-blur flex items-center justify-center"
       >
         <Icon name="Heart" size={18} className={fav ? 'text-rose-500 fill-rose-500' : 'text-muted-foreground'} />
@@ -271,6 +304,96 @@ const ListingCard = ({ l, fav, toggleFav }: { l: Listing; fav: boolean; toggleFa
         <span className="truncate">{l.location || 'Не указано'}</span>
         <span>·</span>
         <span className="shrink-0">{timeAgo(l.created_at)}</span>
+      </div>
+    </div>
+  </div>
+);
+
+const ListingDetail = ({
+  listing,
+  fav,
+  toggleFav,
+  onClose,
+  onChat,
+}: {
+  listing: Listing;
+  fav: boolean;
+  toggleFav: (id: number) => void;
+  onClose: () => void;
+  onChat: () => void;
+}) => (
+  <div className="fixed inset-0 z-30 flex justify-center">
+    <div className="absolute inset-0 bg-black/50 animate-fade-in" onClick={onClose} />
+    <div className="relative w-full max-w-md bg-background rounded-t-3xl mt-auto max-h-[92vh] overflow-y-auto animate-scale-in">
+      <div className="relative">
+        {listing.image_url ? (
+          <img src={listing.image_url} alt={listing.title} className="w-full h-72 object-cover" />
+        ) : (
+          <div className="w-full h-72 bg-muted flex items-center justify-center">
+            <Icon name="Image" size={40} className="text-muted-foreground" />
+          </div>
+        )}
+        <button
+          onClick={onClose}
+          className="absolute top-4 left-4 w-9 h-9 rounded-full bg-white/90 backdrop-blur flex items-center justify-center"
+        >
+          <Icon name="X" size={18} />
+        </button>
+        <button
+          onClick={() => toggleFav(listing.id)}
+          className="absolute top-4 right-4 w-9 h-9 rounded-full bg-white/90 backdrop-blur flex items-center justify-center"
+        >
+          <Icon name="Heart" size={18} className={fav ? 'text-rose-500 fill-rose-500' : 'text-muted-foreground'} />
+        </button>
+      </div>
+
+      <div className="p-4 space-y-4">
+        <div>
+          <span className="inline-block bg-accent text-accent-foreground text-xs px-2.5 py-1 rounded-lg mb-2">
+            {listing.category}
+          </span>
+          <div className="text-2xl font-700">{formatPrice(listing.price)}</div>
+          <h2 className="text-lg font-600 mt-1">{listing.title}</h2>
+          <div className="flex items-center gap-1.5 text-sm text-muted-foreground mt-2">
+            <Icon name="MapPin" size={14} />
+            <span>{listing.location || 'Не указано'}</span>
+            <span>·</span>
+            <span>{timeAgo(listing.created_at)}</span>
+          </div>
+        </div>
+
+        {listing.description && (
+          <div>
+            <h3 className="text-sm font-600 mb-1">Описание</h3>
+            <p className="text-sm text-muted-foreground leading-relaxed">{listing.description}</p>
+          </div>
+        )}
+
+        <div className="flex items-center gap-3 bg-card border border-border rounded-2xl p-3">
+          <div className="w-11 h-11 rounded-full bg-primary/10 text-primary flex items-center justify-center font-600 shrink-0">
+            {(listing.author_name || 'А')[0]}
+          </div>
+          <div className="flex-1 min-w-0">
+            <div className="font-600 text-sm truncate">{listing.author_name || 'Аноним'}</div>
+            <div className="flex items-center gap-1 text-xs text-muted-foreground">
+              <Icon name="Star" size={12} className="fill-amber-400 text-amber-400" />
+              <span>4.9 · 24 отзыва</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div className="sticky bottom-0 bg-background border-t border-border p-4 flex gap-3">
+        <button
+          onClick={onChat}
+          className="flex-1 bg-primary text-primary-foreground rounded-2xl py-3.5 font-600 flex items-center justify-center gap-2 hover:opacity-90 transition-opacity"
+        >
+          <Icon name="MessageCircle" size={18} />
+          Написать продавцу
+        </button>
+        <button className="w-14 rounded-2xl border border-border flex items-center justify-center hover:bg-muted transition-colors">
+          <Icon name="Phone" size={18} />
+        </button>
       </div>
     </div>
   </div>
@@ -389,9 +512,10 @@ interface FavProps {
   listings: Listing[];
   favs: number[];
   toggleFav: (id: number) => void;
+  onOpen: (l: Listing) => void;
 }
 
-const FavoritesView = ({ listings, favs, toggleFav }: FavProps) => (
+const FavoritesView = ({ listings, favs, toggleFav, onOpen }: FavProps) => (
   <div className="px-4 py-4 animate-fade-in space-y-3">
     <h2 className="text-xl font-700 mb-1">Избранное</h2>
     {listings.length === 0 ? (
@@ -401,7 +525,7 @@ const FavoritesView = ({ listings, favs, toggleFav }: FavProps) => (
       </div>
     ) : (
       listings.map((l) => (
-        <ListingCard key={l.id} l={l} fav={favs.includes(l.id)} toggleFav={toggleFav} />
+        <ListingCard key={l.id} l={l} fav={favs.includes(l.id)} toggleFav={toggleFav} onOpen={onOpen} />
       ))
     )}
   </div>
