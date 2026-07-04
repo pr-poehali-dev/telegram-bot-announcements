@@ -3,6 +3,7 @@ import Icon from '@/components/ui/icon';
 import { toast } from '@/hooks/use-toast';
 
 const API_URL = 'https://functions.poehali.dev/97938461-ad8b-48a6-b71e-e94ff0a72f1b';
+const CHAT_API_URL = 'https://functions.poehali.dev/b21ecf3f-7d0b-4ea0-a89e-b5b5c60d2fdf';
 
 type Tab = 'feed' | 'create' | 'favorites' | 'chats' | 'profile';
 
@@ -18,14 +19,27 @@ interface Listing {
   created_at?: string;
 }
 
+interface ChatSummary {
+  id: number;
+  listing_id: number;
+  seller_name: string;
+  listing_title?: string;
+  image_url?: string;
+  last_text?: string;
+  last_time?: string;
+  unread: number;
+}
+
+interface ChatMessage {
+  id: number;
+  chat_id: number;
+  sender: string;
+  text: string;
+  created_at: string;
+}
+
 const CATEGORIES = ['Все', 'Транспорт', 'Недвижимость', 'Электроника', 'Работа', 'Услуги', 'Хобби'];
 const FORM_CATEGORIES = CATEGORIES.filter((c) => c !== 'Все');
-
-const CHATS = [
-  { id: 1, name: 'Алексей П.', text: 'Здравствуйте, велосипед ещё продаётся?', time: '12:40', unread: 2, letter: 'А' },
-  { id: 2, name: 'Мария К.', text: 'Можно посмотреть квартиру завтра?', time: '11:05', unread: 0, letter: 'М' },
-  { id: 3, name: 'Игорь С.', text: 'Спасибо, договорились!', time: 'Вчера', unread: 0, letter: 'И' },
-];
 
 const NOTIFICATIONS = [
   { icon: 'MessageCircle', color: 'text-primary', text: 'Новый отклик на «Велосипед шоссейный»', time: '3 мин назад' },
@@ -54,6 +68,8 @@ const Index = () => {
   const [listings, setListings] = useState<Listing[]>([]);
   const [loading, setLoading] = useState(true);
   const [selected, setSelected] = useState<Listing | null>(null);
+  const [openChatId, setOpenChatId] = useState<number | null>(null);
+  const [chatsRefreshKey, setChatsRefreshKey] = useState(0);
 
   const loadListings = useCallback(async () => {
     setLoading(true);
@@ -132,7 +148,14 @@ const Index = () => {
               onOpen={setSelected}
             />
           )}
-          {tab === 'chats' && <ChatsView />}
+          {tab === 'chats' && (
+            <ChatsView
+              refreshKey={chatsRefreshKey}
+              openChatId={openChatId}
+              onOpenChat={setOpenChatId}
+              onCloseChat={() => setOpenChatId(null)}
+            />
+          )}
           {tab === 'profile' && <ProfileView count={listings.length} />}
         </main>
 
@@ -142,9 +165,25 @@ const Index = () => {
             fav={favs.includes(selected.id)}
             toggleFav={toggleFav}
             onClose={() => setSelected(null)}
-            onChat={() => {
-              setSelected(null);
-              setTab('chats');
+            onChat={async () => {
+              try {
+                const res = await fetch(CHAT_API_URL, {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({
+                    action: 'open',
+                    listing_id: selected.id,
+                    seller_name: selected.author_name || 'Продавец',
+                  }),
+                });
+                const data = await res.json();
+                setSelected(null);
+                setTab('chats');
+                setChatsRefreshKey((k) => k + 1);
+                setOpenChatId(data.chat_id);
+              } catch {
+                toast({ title: 'Не удалось открыть чат', variant: 'destructive' });
+              }
             }}
           />
         )}
@@ -531,53 +570,230 @@ const FavoritesView = ({ listings, favs, toggleFav, onOpen }: FavProps) => (
   </div>
 );
 
-const ChatsView = () => (
-  <div className="animate-fade-in">
-    <div className="px-4 py-4">
-      <h2 className="text-xl font-700">Уведомления</h2>
-    </div>
-    <div className="px-4 space-y-2">
-      {NOTIFICATIONS.map((n, i) => (
-        <div key={i} className="flex items-center gap-3 bg-card border border-border rounded-2xl p-3">
-          <div className="w-10 h-10 rounded-full bg-accent flex items-center justify-center shrink-0">
-            <Icon name={n.icon} size={18} className={n.color} />
-          </div>
-          <div className="flex-1 min-w-0">
-            <p className="text-sm text-foreground line-clamp-1">{n.text}</p>
-            <p className="text-xs text-muted-foreground mt-0.5">{n.time}</p>
-          </div>
-        </div>
-      ))}
-    </div>
+interface ChatsViewProps {
+  refreshKey: number;
+  openChatId: number | null;
+  onOpenChat: (id: number) => void;
+  onCloseChat: () => void;
+}
 
-    <div className="px-4 pt-6 pb-2">
-      <h2 className="text-xl font-700">Сообщения</h2>
+const ChatsView = ({ refreshKey, openChatId, onOpenChat, onCloseChat }: ChatsViewProps) => {
+  const [chats, setChats] = useState<ChatSummary[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  const loadChats = useCallback(async () => {
+    try {
+      const res = await fetch(CHAT_API_URL);
+      const data = await res.json();
+      setChats(data.chats || []);
+    } catch {
+      toast({ title: 'Не удалось загрузить чаты', variant: 'destructive' });
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadChats();
+  }, [loadChats, refreshKey]);
+
+  const activeChat = chats.find((c) => c.id === openChatId);
+
+  if (openChatId && activeChat) {
+    return (
+      <ChatWindow
+        chat={activeChat}
+        onBack={() => {
+          onCloseChat();
+          loadChats();
+        }}
+      />
+    );
+  }
+
+  return (
+    <div className="animate-fade-in">
+      <div className="px-4 py-4">
+        <h2 className="text-xl font-700">Уведомления</h2>
+      </div>
+      <div className="px-4 space-y-2">
+        {NOTIFICATIONS.map((n, i) => (
+          <div key={i} className="flex items-center gap-3 bg-card border border-border rounded-2xl p-3">
+            <div className="w-10 h-10 rounded-full bg-accent flex items-center justify-center shrink-0">
+              <Icon name={n.icon} size={18} className={n.color} />
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-sm text-foreground line-clamp-1">{n.text}</p>
+              <p className="text-xs text-muted-foreground mt-0.5">{n.time}</p>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <div className="px-4 pt-6 pb-2">
+        <h2 className="text-xl font-700">Сообщения</h2>
+      </div>
+      <div className="px-4 space-y-1">
+        {loading ? (
+          [1, 2].map((i) => (
+            <div key={i} className="flex items-center gap-3 p-3">
+              <div className="w-12 h-12 rounded-full bg-muted animate-pulse shrink-0" />
+              <div className="flex-1 space-y-2">
+                <div className="h-4 w-24 bg-muted rounded animate-pulse" />
+                <div className="h-3 w-40 bg-muted rounded animate-pulse" />
+              </div>
+            </div>
+          ))
+        ) : chats.length === 0 ? (
+          <div className="text-center text-muted-foreground py-10 text-sm">
+            <Icon name="MessageCircle" size={36} className="mx-auto mb-2 opacity-40" />
+            Пока нет диалогов
+          </div>
+        ) : (
+          chats.map((c) => (
+            <button
+              key={c.id}
+              onClick={() => onOpenChat(c.id)}
+              className="w-full flex items-center gap-3 p-3 rounded-2xl hover:bg-muted transition-colors"
+            >
+              <div className="w-12 h-12 rounded-full bg-primary/10 text-primary flex items-center justify-center font-600 shrink-0 overflow-hidden">
+                {c.image_url ? (
+                  <img src={c.image_url} alt="" className="w-full h-full object-cover" />
+                ) : (
+                  (c.seller_name || 'П')[0]
+                )}
+              </div>
+              <div className="flex-1 min-w-0 text-left">
+                <div className="flex items-center justify-between">
+                  <span className="font-600 text-sm truncate">{c.seller_name}</span>
+                  <span className="text-xs text-muted-foreground shrink-0">{timeAgo(c.last_time)}</span>
+                </div>
+                <div className="flex items-center justify-between mt-0.5">
+                  <p className="text-sm text-muted-foreground truncate pr-2">
+                    {c.last_text || c.listing_title || 'Новый диалог'}
+                  </p>
+                  {c.unread > 0 && (
+                    <span className="bg-primary text-primary-foreground text-xs w-5 h-5 rounded-full flex items-center justify-center shrink-0">
+                      {c.unread}
+                    </span>
+                  )}
+                </div>
+              </div>
+            </button>
+          ))
+        )}
+      </div>
     </div>
-    <div className="px-4 space-y-1">
-      {CHATS.map((c) => (
-        <button key={c.id} className="w-full flex items-center gap-3 p-3 rounded-2xl hover:bg-muted transition-colors">
-          <div className="w-12 h-12 rounded-full bg-primary/10 text-primary flex items-center justify-center font-600 shrink-0">
-            {c.letter}
-          </div>
-          <div className="flex-1 min-w-0 text-left">
-            <div className="flex items-center justify-between">
-              <span className="font-600 text-sm">{c.name}</span>
-              <span className="text-xs text-muted-foreground">{c.time}</span>
-            </div>
-            <div className="flex items-center justify-between mt-0.5">
-              <p className="text-sm text-muted-foreground truncate pr-2">{c.text}</p>
-              {c.unread > 0 && (
-                <span className="bg-primary text-primary-foreground text-xs w-5 h-5 rounded-full flex items-center justify-center shrink-0">
-                  {c.unread}
-                </span>
-              )}
-            </div>
-          </div>
+  );
+};
+
+const ChatWindow = ({ chat, onBack }: { chat: ChatSummary; onBack: () => void }) => {
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [text, setText] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [sending, setSending] = useState(false);
+
+  const loadMessages = useCallback(async () => {
+    try {
+      const res = await fetch(`${CHAT_API_URL}?chat_id=${chat.id}`);
+      const data = await res.json();
+      setMessages(data.messages || []);
+    } catch {
+      toast({ title: 'Не удалось загрузить сообщения', variant: 'destructive' });
+    } finally {
+      setLoading(false);
+    }
+  }, [chat.id]);
+
+  useEffect(() => {
+    loadMessages();
+    const interval = setInterval(loadMessages, 4000);
+    return () => clearInterval(interval);
+  }, [loadMessages]);
+
+  const send = async () => {
+    if (!text.trim() || sending) return;
+    const value = text.trim();
+    setText('');
+    setSending(true);
+    try {
+      await fetch(CHAT_API_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'send', chat_id: chat.id, sender: 'buyer', text: value }),
+      });
+      await loadMessages();
+    } catch {
+      toast({ title: 'Не удалось отправить сообщение', variant: 'destructive' });
+    } finally {
+      setSending(false);
+    }
+  };
+
+  return (
+    <div className="flex flex-col h-[calc(100vh-140px)] animate-fade-in">
+      <div className="flex items-center gap-3 px-4 py-3 border-b border-border">
+        <button onClick={onBack}>
+          <Icon name="ArrowLeft" size={20} className="text-foreground" />
         </button>
-      ))}
+        <div className="w-9 h-9 rounded-full bg-primary/10 text-primary flex items-center justify-center font-600 shrink-0 overflow-hidden">
+          {chat.image_url ? (
+            <img src={chat.image_url} alt="" className="w-full h-full object-cover" />
+          ) : (
+            (chat.seller_name || 'П')[0]
+          )}
+        </div>
+        <div className="min-w-0">
+          <div className="font-600 text-sm truncate">{chat.seller_name}</div>
+          {chat.listing_title && (
+            <div className="text-xs text-muted-foreground truncate">{chat.listing_title}</div>
+          )}
+        </div>
+      </div>
+
+      <div className="flex-1 overflow-y-auto px-4 py-4 space-y-2">
+        {loading ? (
+          <div className="text-center text-muted-foreground text-sm py-10">Загрузка...</div>
+        ) : messages.length === 0 ? (
+          <div className="text-center text-muted-foreground text-sm py-10">
+            Начните диалог с продавцом
+          </div>
+        ) : (
+          messages.map((m) => (
+            <div key={m.id} className={`flex ${m.sender === 'buyer' ? 'justify-end' : 'justify-start'}`}>
+              <div
+                className={`max-w-[75%] px-3.5 py-2 rounded-2xl text-sm ${
+                  m.sender === 'buyer'
+                    ? 'bg-primary text-primary-foreground rounded-br-sm'
+                    : 'bg-muted text-foreground rounded-bl-sm'
+                }`}
+              >
+                {m.text}
+              </div>
+            </div>
+          ))
+        )}
+      </div>
+
+      <div className="flex items-center gap-2 px-4 py-3 border-t border-border">
+        <input
+          value={text}
+          onChange={(e) => setText(e.target.value)}
+          onKeyDown={(e) => e.key === 'Enter' && send()}
+          placeholder="Сообщение..."
+          className="flex-1 bg-card border border-border rounded-2xl px-4 py-2.5 text-sm outline-none focus:border-primary transition-colors"
+        />
+        <button
+          onClick={send}
+          disabled={sending || !text.trim()}
+          className="w-10 h-10 rounded-full bg-primary text-primary-foreground flex items-center justify-center disabled:opacity-50 hover:opacity-90 transition-opacity shrink-0"
+        >
+          <Icon name="Send" size={16} />
+        </button>
+      </div>
     </div>
-  </div>
-);
+  );
+};
 
 const ProfileView = ({ count }: { count: number }) => (
   <div className="animate-fade-in">

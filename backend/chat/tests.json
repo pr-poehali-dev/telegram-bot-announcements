@@ -1,0 +1,26 @@
+{
+  "tests": [
+    {
+      "name": "Список чатов",
+      "method": "GET",
+      "path": "/",
+      "expectedStatus": 200
+    },
+    {
+      "name": "Открытие чата по объявлению",
+      "method": "POST",
+      "path": "/",
+      "body": {"action": "open", "listing_id": 1, "seller_name": "Дмитрий Волков"},
+      "expectedStatus": 200
+    },
+    {
+      "name": "Отправка сообщения",
+      "method": "POST",
+      "path": "/",
+      "body": {"action": "send", "chat_id": 1, "sender": "buyer", "text": "Здравствуйте!"},
+      "expectedStatus": 200,
+      "expectedBody": {"success": true},
+      "bodyMatcher": "partial"
+    }
+  ]
+}
